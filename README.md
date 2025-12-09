@@ -1,7 +1,7 @@
 # 🦎 Gecko Integration for Home Assistant
 
-[![GitHub Release](https://img.shields.io/github/release/geckoal/gecko-iot-client.svg?style=flat-square)](https://github.com/geckoal/gecko-iot-client/releases)
-[![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
+[![GitHub Release](https://img.shields.io/github/release/geckoal/ha-gecko-integration.svg?style=flat-square)](https://github.com/geckoal/ha-gecko-integration/releases)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 Control and monitor your Gecko-powered spas, hot tubs, and pool equipment directly from Home Assistant.
 
@@ -82,4 +82,8 @@ Built with [gecko-iot-client](https://github.com/geckoal/gecko-iot-client) libra
 
 ## License
 
-This integration is licensed under the GPL-3.0 license. See [LICENSE](LICENSE) for details.
+Copyright 2024-2025 Gecko Alliance
+
+This integration is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for full terms.
+
+**Important**: This software is intended for use with Gecko Alliance equipment through Home Assistant. Commercial use or use outside the intended scope may require authorization from Gecko Alliance. See [NOTICE](NOTICE) for additional restrictions and trademark information.
