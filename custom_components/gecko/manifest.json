@@ -1,0 +1,16 @@
+{
+  "domain": "gecko",
+  "name": "Gecko",
+  "version": "1.3.0",
+  "codeowners": [
+    "@geckoal"
+  ],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/geckoal/ha-gecko-integration",
+  "iot_class": "cloud_push",
+  "requirements": ["awsiotsdk==1.26.0", "gecko-iot-client==0.2.2", "dacite"],
+  "issue_tracker": "https://github.com/geckoal/ha-gecko-integration/issues",
+  "integration_type": "hub",
+  "loggers": ["gecko_iot_client"]
+}
