@@ -9,13 +9,15 @@ import os
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import aiohttp_client, config_entry_oauth2_flow, device_registry as dr
+from homeassistant.helpers import aiohttp_client, config_entry_oauth2_flow, config_validation as cv, device_registry as dr
 
 
 from .api import OAuthGeckoApi
 from .oauth_implementation import GeckoPKCEOAuth2Implementation
 from .const import DOMAIN, OAUTH2_AUTHORIZE, OAUTH2_CLIENT_ID, OAUTH2_TOKEN
 from .coordinator import GeckoVesselCoordinator
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 async def async_setup(hass: HomeAssistant, _config: dict) -> bool:
@@ -43,7 +45,6 @@ class GeckoRuntimeData:
 
 
 # List the platforms that this integration supports.
-# TODO: Re-enable other platforms after testing lights with new coordinator architecture
 _PLATFORMS: list[Platform] = [Platform.LIGHT, Platform.FAN, Platform.CLIMATE, Platform.SELECT, Platform.BINARY_SENSOR]  
 _LOGGER = logging.getLogger(__name__)
 
