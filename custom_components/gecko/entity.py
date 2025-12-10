@@ -75,7 +75,7 @@ class GeckoEntityAvailabilityMixin:
             self._attr_available = new_availability
             # Use the proper thread-safe method to write state from background thread
             self.hass.loop.call_soon_threadsafe(
-                self._async_write_ha_state_from_call_soon_threadsafe
+                self.async_write_ha_state
             )
 
     def _update_availability(self) -> None:

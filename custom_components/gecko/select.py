@@ -99,7 +99,6 @@ class GeckoWatercareSelectEntity(GeckoEntityAvailabilityMixin, CoordinatorEntity
         
         # Initialize availability (will be updated by mixin when added to hass)
         self._attr_available = False
-        self._connectivity_callback_registered = False
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
@@ -112,8 +111,7 @@ class GeckoWatercareSelectEntity(GeckoEntityAvailabilityMixin, CoordinatorEntity
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         try:
-            # Get the gecko client to access operation mode controller
-            # This is called from the event loop, but we need to schedule async work
+            # Schedule async state update
             self.hass.async_create_task(self._async_update_state())
         except Exception as e:
             _LOGGER.debug("Error scheduling state update for %s: %s", self._attr_name, e)
