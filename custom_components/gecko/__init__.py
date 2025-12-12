@@ -130,6 +130,7 @@ def _setup_vessel_device(entry: ConfigEntry, vessel: dict, device_registry: dr.D
     vessel_name = vessel.get("name", f"Vessel {vessel_id}")
     vessel_type = vessel.get("type", "Unknown")
     protocol_name = vessel.get("protocolName", "Unknown")
+    monitor_id = vessel.get("monitorId")
     
     # Create a more descriptive device name
     device_name = vessel_name
@@ -142,6 +143,7 @@ def _setup_vessel_device(entry: ConfigEntry, vessel: dict, device_registry: dr.D
         manufacturer="Gecko",
         model=f"{vessel_type} ({protocol_name})",
         sw_version=None,
+        serial_number=monitor_id,
     )
 
 
