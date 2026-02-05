@@ -51,7 +51,7 @@ async def async_setup_entry(
             
             for zone in light_zones:
                 # Check if entity already exists
-                entity_id = f"{coordinator.vessel_name}_light_{zone.id}"
+                entity_id = f"{coordinator.vessel_name}_light_{zone.id}".lower()
                 if entity_id not in created_entity_ids:
                     entity = GeckoLight(coordinator, config_entry, zone)
                     new_entities.append(entity)
@@ -86,7 +86,7 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
         super().__init__(coordinator)
         
         self._zone = zone
-        self.entity_id = f"light.{coordinator.vessel_name}_light_{zone.id}"
+        self.entity_id = f"light.{coordinator.vessel_name}_light_{zone.id}".lower()
         
         self._attr_name = f"{coordinator.vessel_name} light zone {zone.id}"
         self._attr_unique_id = f"{config_entry.entry_id}_{coordinator.vessel_name}_light_{zone.id}"

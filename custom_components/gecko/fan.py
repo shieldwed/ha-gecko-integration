@@ -39,7 +39,7 @@ async def async_setup_entry(
             pump_zones = vessel_coordinator.get_zones_by_type(ZoneType.FLOW_ZONE)
             flow_zones = [zone for zone in pump_zones if isinstance(zone, FlowZone)]
             for zone in flow_zones:
-                entity_id = f"{vessel_coordinator.vessel_name}_pump_{zone.id}"
+                entity_id = f"{vessel_coordinator.vessel_name}_pump_{zone.id}".lower()
                 if entity_id not in created_entity_ids:
                     entity = GeckoFan(vessel_coordinator, config_entry, zone)
                     new_entities.append(entity)
@@ -68,7 +68,7 @@ class GeckoFan(GeckoEntityAvailabilityMixin, CoordinatorEntity, FanEntity):
         CoordinatorEntity.__init__(self, coordinator)
         self._coordinator: GeckoVesselCoordinator = coordinator
         self._zone = zone
-        self.entity_id = f"fan.{coordinator.vessel_name}_pump_{zone.id}"
+        self.entity_id = f"fan.{coordinator.vessel_name}_pump_{zone.id}".lower()
         self._attr_name = f"{coordinator.vessel_name} {zone.name}"
         self._attr_unique_id = f"{config_entry.entry_id}_{coordinator.vessel_name}_pump_{zone.id}"
 
