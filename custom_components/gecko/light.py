@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from homeassistant.components.light import ColorMode, LightEntity
+from homeassistant.components.light import ColorMode, LightEntity, ATTR_RGB_COLOR
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -141,11 +141,17 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
             light_zones = self.coordinator.get_zones_by_type(ZoneType.LIGHTING_ZONE)
             zone = next((z for z in light_zones if z.id == self._zone.id), None)
             if zone:
-                activate_method = getattr(zone, "activate", None)
-                if activate_method and callable(activate_method):
-                    activate_method()
+                if ATTR_RGB_COLOR in kwargs:
+                    rgb = kwargs[ATTR_RGB_COLOR]
+                    _LOGGER.info("Sending color %s to Gecko zone %s", rgb, zone.id)
+                    if hasattr(zone, "set_color"):
+                        zone.set_color(r=rgb[0], g=rgb[1], b=rgb[2], i=255)
+                    else:
+                        _LOGGER.warning("Zone %s has no set_color method", zone.id)
                 else:
-                    _LOGGER.warning("Zone %s does not have activate method", zone.id)
+                    activate_method = getattr(zone, "activate", None)
+                    if activate_method and callable(activate_method):
+                        activate_method()
             else:
                 _LOGGER.warning("Could not find lighting zone %s", self._zone.id)
         except Exception as e:
