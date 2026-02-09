@@ -5,8 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from homeassistant.components.light import ColorMode, LightEntity, ATTR_RGB_COLOR
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.components.light import ColorMode, LightEntity, ATTR_RGB_COLOR, ATTR_BRIGHTNESS
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers import device_registry as dr
@@ -97,8 +96,8 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
         )
 
         # Set basic light features
-        self._attr_supported_color_modes = {ColorMode.ONOFF}
-        self._attr_color_mode = ColorMode.ONOFF
+        self._attr_supported_color_modes = {ColorMode.RGB}
+        self._attr_color_mode = ColorMode.RGB
 
         # Initialize state and availability (will be set by async_added_to_hass event registration)
         self._attr_available = False
@@ -116,6 +115,12 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
     def _update_state(self) -> None:
         """Update entity state from zone data."""
         zone = self._get_zone_state()
+
+        # Try to update brightness and color from hardware state if available
+        self._attr_brightness = getattr(zone, 'intensity', 255)
+        # Note: If your API provides current r,g,b values, assign them here:
+        # self._attr_rgb_color = (getattr(zone, 'r', 255), ...)
+
         if zone:
             self._attr_is_on = getattr(zone, 'active', False)
         else:
@@ -129,26 +134,34 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
         self.async_write_ha_state()
 
     async def async_turn_on(self, **kwargs) -> None:
-        """Turn the light on."""
+        """Turn the light on, set color or change brightness."""
         try:
-            # Check if gecko client is connected
             gecko_client = await self.coordinator.get_gecko_client()
             if not gecko_client:
                 _LOGGER.error("No gecko client available for %s", self._attr_name)
                 return
 
-            # Get the light zone from coordinator and activate it
             light_zones = self.coordinator.get_zones_by_type(ZoneType.LIGHTING_ZONE)
             zone = next((z for z in light_zones if z.id == self._zone.id), None)
+
             if zone:
-                if ATTR_RGB_COLOR in kwargs:
-                    rgb = kwargs[ATTR_RGB_COLOR]
-                    _LOGGER.info("Sending color %s to Gecko zone %s", rgb, zone.id)
+                # Handle RGB color and Brightness (Intensity)
+                if ATTR_RGB_COLOR in kwargs or ATTR_BRIGHTNESS in kwargs:
+                    # Get RGB values from kwargs or default to current/white
+                    rgb = kwargs.get(ATTR_RGB_COLOR, self._attr_rgb_color or (255, 255, 255))
+                    # Get Brightness (0-255) from kwargs or default to max
+                    brightness = kwargs.get(ATTR_BRIGHTNESS, self._attr_brightness or 255)
+
+                    _LOGGER.info("Setting Gecko light %s to RGB:%s Intensity:%s", zone.id, rgb, brightness)
+
                     if hasattr(zone, "set_color"):
-                        zone.set_color(r=rgb[0], g=rgb[1], b=rgb[2], i=255)
+                        # API call: set_color(r, g, b, i)
+                        zone.set_color(r=rgb[0], g=rgb[1], b=rgb[2], i=brightness)
                     else:
-                        _LOGGER.warning("Zone %s has no set_color method", zone.id)
+                        _LOGGER.warning("Zone %s does not support set_color, falling back to activate", zone.id)
+                        zone.activate()
                 else:
+                    # Standard turn-on without specific color/brightness
                     activate_method = getattr(zone, "activate", None)
                     if activate_method and callable(activate_method):
                         activate_method()
@@ -160,13 +173,10 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
     async def async_turn_off(self, **kwargs) -> None:
         """Turn the light off."""
         try:
-            # Check if gecko client is connected
             gecko_client = await self.coordinator.get_gecko_client()
             if not gecko_client:
-                _LOGGER.error("No gecko client available for %s", self._attr_name)
                 return
 
-            # Get the light zone from coordinator and deactivate it
             light_zones = self.coordinator.get_zones_by_type(ZoneType.LIGHTING_ZONE)
             zone = next((z for z in light_zones if z.id == self._zone.id), None)
             if zone:
