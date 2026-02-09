@@ -134,39 +134,42 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
         self.async_write_ha_state()
 
     async def async_turn_on(self, **kwargs) -> None:
-        """Turn the light on, set color or change brightness."""
+        """Turn the light on and force color sync."""
         try:
             gecko_client = await self.coordinator.get_gecko_client()
             if not gecko_client:
-                _LOGGER.error("No gecko client available for %s", self._attr_name)
                 return
 
             light_zones = self.coordinator.get_zones_by_type(ZoneType.LIGHTING_ZONE)
             zone = next((z for z in light_zones if z.id == self._zone.id), None)
 
             if zone:
-                # Handle RGB color and Brightness (Intensity)
+                # FIRST: Always ensure the light is active
+                if not getattr(zone, 'active', False):
+                    zone.activate()
+                    # Small sleep to allow the controller to process the activation
+                    # (Optional: import asyncio and use await asyncio.sleep(0.5))
+
                 if ATTR_RGB_COLOR in kwargs or ATTR_BRIGHTNESS in kwargs:
-                    # Get RGB values from kwargs or default to current/white
                     rgb = kwargs.get(ATTR_RGB_COLOR, self._attr_rgb_color or (255, 255, 255))
-                    # Get Brightness (0-255) from kwargs or default to max
                     brightness = kwargs.get(ATTR_BRIGHTNESS, self._attr_brightness or 255)
 
-                    _LOGGER.info("Setting Gecko light %s to RGB:%s Intensity:%s", zone.id, rgb, brightness)
+                    _LOGGER.info("Attempting to set color for zone %s: RGB %s, Int %s", zone.id, rgb, brightness)
 
+                    # Try calling set_color
                     if hasattr(zone, "set_color"):
-                        # API call: set_color(r, g, b, i)
-                        zone.set_color(r=rgb[0], g=rgb[1], b=rgb[2], i=brightness)
+                        zone.set_color(r=int(rgb[0]), g=int(rgb[1]), b=int(rgb[2]), i=int(brightness))
+
+                        # CRITICAL: Some Gecko versions require a manual sync call
+                        # after changing attributes. Check if your zone has a 'sync' or 'save' method.
+                        if hasattr(zone, "save"):
+                            zone.save()
                     else:
-                        _LOGGER.warning("Zone %s does not support set_color, falling back to activate", zone.id)
-                        zone.activate()
+                        _LOGGER.error("The lighting zone object does not have a 'set_color' method!")
                 else:
-                    # Standard turn-on without specific color/brightness
-                    activate_method = getattr(zone, "activate", None)
-                    if activate_method and callable(activate_method):
-                        activate_method()
-            else:
-                _LOGGER.warning("Could not find lighting zone %s", self._zone.id)
+                    # If no color provided, just activation is enough
+                    if not getattr(zone, 'active', False):
+                        zone.activate()
         except Exception as e:
             _LOGGER.error("Error turning on light %s: %s", self._attr_name, e)
 
