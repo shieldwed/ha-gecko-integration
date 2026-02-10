@@ -155,12 +155,22 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
 
             # Farbe setzen, falls vorhanden
             if "rgb_color" in kwargs:
-                r, g, b = kwargs["rgb_color"]
-                set_color = getattr(zone, "set_color", None)
 
-                if callable(set_color):
-                    set_color(int(r), int(g), int(b))
-                    self._attr_rgb_color = (int(r), int(g), int(b))
+                _LOGGER.debug(
+                    "rgb_color type=%s value=%s",
+                    type(kwargs.get("rgb_color")),
+                    kwargs.get("rgb_color"),
+                )
+
+                rgb = kwargs.get("rgb_color")
+
+                if rgb is not None:
+                    r = int(rgb[0])
+                    g = int(rgb[1])
+                    b = int(rgb[2])
+
+                    zone.set_color(r, g, b)
+                    self._attr_rgb_color = (r, g, b)
                 else:
                     _LOGGER.warning("Zone %s has no set_color method", zone.id)
 
