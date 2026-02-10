@@ -117,13 +117,20 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
         return None
 
     def _update_state(self) -> None:
-        """Update entity state from zone data."""
         zone = self._get_zone_state()
         if zone:
-            self._attr_is_on = getattr(zone, 'active', False)
+            self._attr_is_on = getattr(zone, "active", False)
 
-            if hasattr(zone, "color"):
-                self._attr_rgb_color = tuple(zone.color)
+            if hasattr(zone, "color") and zone.color:
+                try:
+                    r, g, b = zone.color
+                    self._attr_rgb_color = (int(r), int(g), int(b))
+                except Exception as e:
+                    _LOGGER.warning(
+                        "Invalid color value from zone %s: %s",
+                        zone.id,
+                        e,
+                    )
         else:
             self._attr_is_on = None
 
