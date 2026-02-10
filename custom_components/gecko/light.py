@@ -153,31 +153,20 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
                 _LOGGER.warning("Could not find lighting zone %s", self._zone.id)
                 return
 
-            # Farbe setzen, falls vorhanden
             if "rgb_color" in kwargs:
+                rgb = kwargs["rgb_color"]
+                r, g, b = map(int, rgb)
 
-                _LOGGER.debug(
-                    "rgb_color type=%s value=%s",
-                    type(kwargs.get("rgb_color")),
-                    kwargs.get("rgb_color"),
-                )
+                self._attr_rgb_color = (r, g, b)
 
-                rgb = kwargs.get("rgb_color")
+                await gecko_client.set_color(r, g, b)
 
-                if rgb is not None:
-                    r = int(rgb[0])
-                    g = int(rgb[1])
-                    b = int(rgb[2])
-
-                    zone.set_color(r, g, b)
-                    self._attr_rgb_color = (r, g, b)
-                else:
-                    _LOGGER.warning("Zone %s has no set_color method", zone.id)
-
-            # Licht aktivieren
             activate_method = getattr(zone, "activate", None)
             if callable(activate_method):
                 activate_method()
+
+            self._attr_is_on = True
+            self.async_write_ha_state()
 
         except Exception as e:
             _LOGGER.error("Error turning on light %s: %s", self._attr_name, e)
