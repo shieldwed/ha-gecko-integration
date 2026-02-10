@@ -101,7 +101,7 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
         self._attr_color_mode = ColorMode.RGB
 
         self._attr_supported_features = 0  # No additional features like brightness or color temp for now
-        self._attr_rgb_color = (255, 255, 255)  # Default to white; actual color control would depend on the capabilities of the lighting zones
+        self._attr_rgb_color: tuple[int, int, int] = (255, 255, 255)  # Default to white; actual color control would depend on the capabilities of the lighting zones
 
         # Initialize state and availability (will be set by async_added_to_hass event registration)
         self._attr_available = False
@@ -152,8 +152,8 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
                 set_color = getattr(zone, "set_color", None)
 
                 if callable(set_color):
-                    set_color(r, g, b)
-                    self._attr_rgb_color = (r, g, b)
+                    set_color(int(r), int(g), int(b))
+                    self._attr_rgb_color = (int(r), int(g), int(b))
                 else:
                     _LOGGER.warning("Zone %s has no set_color method", zone.id)
 
