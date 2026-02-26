@@ -1,0 +1,35 @@
+min_version = "2024.9.5"
+
+[env]
+# Use the project name derived from the current directory
+PROJECT_NAME = "{{ config_root | basename }}"
+
+# Automatic virtualenv activation
+_.python.venv = { path = ".venv", create = true }
+
+[tools]
+ruff = "latest"
+uv = "latest"
+
+[prepare.uv]
+
+[tasks.install]
+description = "Install dependencies"
+alias = "i"
+run = "uv sync"
+
+[tasks.lint]
+description = "Lint the code"
+run = "ruff check custom_components/"
+
+[tasks.info]
+description = "Print project information"
+run = '''
+echo "Project: $PROJECT_NAME"
+echo "Virtual Environment: $VIRTUAL_ENV"
+'''
+
+[settings]
+python.uv_venv_auto = "source"
+experimental = true
+idiomatic_version_file_enable_tools = ["python"]
