@@ -6,7 +6,9 @@ import logging
 from typing import Any
 
 from homeassistant.components.light import (
+    ATTR_BRIGHTNESS,
     ATTR_EFFECT,
+    ATTR_RGB_COLOR,
     ColorMode,
     LightEntity,
     LightEntityFeature,
@@ -26,6 +28,9 @@ from gecko_iot_client.models.zone_types import ZoneType
 
 
 _LOGGER = logging.getLogger(__name__)
+
+# List of supported effects for Gecko lights
+GECKO_EFFECTS = ["Rainbow Slow", "Rainbow Fast", "Slow Fade", "Fast Fade", "Loop"]
 
 
 async def async_setup_entry(
@@ -101,14 +106,16 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
             identifiers={(DOMAIN, str(coordinator.vessel_id))},
         )
 
-        # Set basic light features
+        # Set basic light features - Now supporting RGB and Effects
+        self._attr_supported_color_modes = {ColorMode.RGB}
+        self._attr_color_mode = ColorMode.RGB
         self._attr_supported_features = LightEntityFeature.EFFECT
-        self._attr_effect_list = ["rainbow"]
-        self._attr_supported_color_modes = {ColorMode.ONOFF}
-        self._attr_color_mode = ColorMode.ONOFF
+        self._attr_effect_list = GECKO_EFFECTS
 
         # Initialize state and availability (will be set by async_added_to_hass event registration)
         self._attr_available = False
+        self._attr_rgb_color = (255, 255, 255)
+        self._attr_effect = None
         self._update_state()
 
     def _get_zone_state(self) -> Any | None:
@@ -125,6 +132,14 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
         zone = self._get_zone_state()
         if zone:
             self._attr_is_on = getattr(zone, 'active', False)
+            
+            # Update brightness/color if supported by zone
+            if hasattr(zone, "rgbi") and zone.rgbi:
+                self._attr_rgb_color = (zone.rgbi.r, zone.rgbi.g, zone.rgbi.b)
+            
+            # Update effect if supported by zone
+            if hasattr(zone, "effect"):
+                self._attr_effect = zone.effect
         else:
             self._attr_is_on = None
 
@@ -144,25 +159,44 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
                 _LOGGER.error("No gecko client available for %s", self._attr_name)
                 return
 
-            # Get the light zone from coordinator and activate it
+            # Get the light zone from coordinator
             light_zones = self.coordinator.get_zones_by_type(ZoneType.LIGHTING_ZONE)
             zone = next((z for z in light_zones if z.id == self._zone.id), None)
-            if zone:
-                if ATTR_EFFECT in kwargs:
-                    effect = kwargs[ATTR_EFFECT]
-                    set_effect_method = getattr(zone, "set_effect", None)
-                    if set_effect_method and callable(set_effect_method):
-                        set_effect_method(effect)
-                    else:
-                        _LOGGER.warning("Zone %s does not have set_effect method", zone.id)
-                else:
-                    activate_method = getattr(zone, "activate", None)
-                    if activate_method and callable(activate_method):
-                        activate_method()
-                    else:
-                        _LOGGER.warning("Zone %s does not have activate method", zone.id)
-            else:
+            if not zone:
                 _LOGGER.warning("Could not find lighting zone %s", self._zone.id)
+                return
+
+            # Handle effect change
+            if ATTR_EFFECT in kwargs:
+                effect = kwargs[ATTR_EFFECT]
+                _LOGGER.debug("Setting effect %s for %s", effect, self._attr_name)
+                set_effect_method = getattr(zone, "set_effect", None)
+                if callable(set_effect_method):
+                    set_effect_method(effect)
+                else:
+                    _LOGGER.warning("Zone %s does not support set_effect", zone.id)
+
+            # Handle color change
+            if ATTR_RGB_COLOR in kwargs:
+                rgb = kwargs[ATTR_RGB_COLOR]
+                _LOGGER.debug("Setting RGB color %s for %s", rgb, self._attr_name)
+                set_color_method = getattr(zone, "set_color", None)
+                if callable(set_color_method):
+                    set_color_method(rgb[0], rgb[1], rgb[2])
+                else:
+                    _LOGGER.warning("Zone %s does not support set_color", zone.id)
+
+            # If no specific effect or color was requested and it's not already on, just activate it
+            if ATTR_EFFECT not in kwargs and ATTR_RGB_COLOR not in kwargs:
+                activate_method = getattr(zone, "activate", None)
+                if callable(activate_method):
+                    activate_method()
+                else:
+                    _LOGGER.warning("Zone %s does not have activate method", zone.id)
+
+            self._attr_is_on = True
+            self.async_write_ha_state()
+
         except Exception as e:
             _LOGGER.error("Error turning on light %s: %s", self._attr_name, e)
 
@@ -175,16 +209,20 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
                 _LOGGER.error("No gecko client available for %s", self._attr_name)
                 return
 
-            # Get the light zone from coordinator and deactivate it
+            # Get the light zone from coordinator
             light_zones = self.coordinator.get_zones_by_type(ZoneType.LIGHTING_ZONE)
             zone = next((z for z in light_zones if z.id == self._zone.id), None)
             if zone:
                 deactivate_method = getattr(zone, "deactivate", None)
-                if deactivate_method and callable(deactivate_method):
+                if callable(deactivate_method):
                     deactivate_method()
                 else:
                     _LOGGER.warning("Zone %s does not have deactivate method", zone.id)
             else:
                 _LOGGER.warning("Could not find lighting zone %s", self._zone.id)
+            
+            self._attr_is_on = False
+            self.async_write_ha_state()
+            
         except Exception as e:
             _LOGGER.error("Error turning off light %s: %s", self._attr_name, e)
