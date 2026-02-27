@@ -25,6 +25,7 @@ from .coordinator import GeckoVesselCoordinator
 from .entity import GeckoEntityAvailabilityMixin
 
 from gecko_iot_client.models.zone_types import ZoneType
+from gecko_iot_client.models.lighting_zone import RGB
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -201,11 +202,20 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
             if ATTR_RGB_COLOR in kwargs:
                 rgb = kwargs[ATTR_RGB_COLOR]
                 _LOGGER.debug("Setting RGB color %s for %s", rgb, self._attr_name)
-                set_color_method = getattr(zone, "set_color", None)
-                if callable(set_color_method):
-                    set_color_method(rgb[0], rgb[1], rgb[2])
+                
+                # WORKAROUND: Bypass broken zone.set_color() in gecko-iot-client v0.2.5
+                # The library method fails with "Object of type RGB is not JSON serializable"
+                rgb_obj = RGB(r=int(rgb[0]), g=int(rgb[1]), b=int(rgb[2]))
+                zone.rgbi = rgb_obj
+                zone.active = True
+                
+                # Manually publish the state as a serializable dictionary
+                publish_method = getattr(zone, "_publish_desired_state", None)
+                if callable(publish_method):
+                    # We utilize the model_dump() method of the RGB class to get a dict
+                    publish_method({"rgbi": rgb_obj.model_dump(), "active": True})
                 else:
-                    _LOGGER.warning("Zone %s does not support set_color", zone.id)
+                    _LOGGER.warning("Zone %s does not support _publish_desired_state manual call", zone.id)
 
             self._attr_is_on = True
             await self.coordinator.async_request_refresh()
