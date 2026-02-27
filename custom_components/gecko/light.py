@@ -135,6 +135,7 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
             
             # Update effect if supported by zone and valid
             zone_effect = getattr(zone, "effect", None)
+            _LOGGER.debug("Zone %s current effect: %s", zone.id, zone_effect)
             if zone_effect in GECKO_EFFECTS:
                 self._attr_effect = zone_effect
             else:
@@ -144,6 +145,8 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
             if self._attr_effect:
                 self._attr_rgb_color = None
             elif hasattr(zone, "rgbi") and zone.rgbi:
+                _LOGGER.debug("Zone %s current RGBI: r=%s, g=%s, b=%s, i=%s", 
+                             zone.id, zone.rgbi.r, zone.rgbi.g, zone.rgbi.b, zone.rgbi.i)
                 self._attr_rgb_color = (zone.rgbi.r, zone.rgbi.g, zone.rgbi.b)
             else:
                 self._attr_rgb_color = (255, 255, 255)
