@@ -5,7 +5,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from homeassistant.components.light import ColorMode, LightEntity
+from homeassistant.components.light import (
+    ATTR_EFFECT,
+    ColorMode,
+    LightEntity,
+    LightEntityFeature,
+)
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers import device_registry as dr
@@ -97,6 +103,8 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
         )
         
         # Set basic light features
+        self._attr_supported_features = LightEntityFeature.EFFECT
+        self._attr_effect_list = ["rainbow"]
         self._attr_supported_color_modes = {ColorMode.ONOFF}
         self._attr_color_mode = ColorMode.ONOFF
         
@@ -141,11 +149,19 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
             light_zones = self.coordinator.get_zones_by_type(ZoneType.LIGHTING_ZONE)
             zone = next((z for z in light_zones if z.id == self._zone.id), None)
             if zone:
-                activate_method = getattr(zone, "activate", None)
-                if activate_method and callable(activate_method):
-                    activate_method()
+                if ATTR_EFFECT in kwargs:
+                    effect = kwargs[ATTR_EFFECT]
+                    set_effect_method = getattr(zone, "set_effect", None)
+                    if set_effect_method and callable(set_effect_method):
+                        set_effect_method(effect)
+                    else:
+                        _LOGGER.warning("Zone %s does not have set_effect method", zone.id)
                 else:
-                    _LOGGER.warning("Zone %s does not have activate method", zone.id)
+                    activate_method = getattr(zone, "activate", None)
+                    if activate_method and callable(activate_method):
+                        activate_method()
+                    else:
+                        _LOGGER.warning("Zone %s does not have activate method", zone.id)
             else:
                 _LOGGER.warning("Could not find lighting zone %s", self._zone.id)
         except Exception as e:
