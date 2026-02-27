@@ -133,13 +133,20 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
         if zone:
             self._attr_is_on = getattr(zone, 'active', False)
             
-            # Update brightness/color if supported by zone
-            if hasattr(zone, "rgbi") and zone.rgbi:
+            # Update effect if supported by zone and valid
+            zone_effect = getattr(zone, "effect", None)
+            if zone_effect in GECKO_EFFECTS:
+                self._attr_effect = zone_effect
+            else:
+                self._attr_effect = None
+
+            # Update brightness/color if supported by zone and no effect is active
+            if self._attr_effect:
+                self._attr_rgb_color = None
+            elif hasattr(zone, "rgbi") and zone.rgbi:
                 self._attr_rgb_color = (zone.rgbi.r, zone.rgbi.g, zone.rgbi.b)
-            
-            # Update effect if supported by zone
-            if hasattr(zone, "effect"):
-                self._attr_effect = zone.effect
+            else:
+                self._attr_rgb_color = (255, 255, 255)
         else:
             self._attr_is_on = None
 
@@ -166,15 +173,26 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
                 _LOGGER.warning("Could not find lighting zone %s", self._zone.id)
                 return
 
+            # Always activate the zone first to ensure it's powered on
+            activate_method = getattr(zone, "activate", None)
+            if callable(activate_method):
+                activate_method()
+            else:
+                 _LOGGER.warning("Zone %s does not have activate method", zone.id)
+
             # Handle effect change
             if ATTR_EFFECT in kwargs:
                 effect = kwargs[ATTR_EFFECT]
-                _LOGGER.debug("Setting effect %s for %s", effect, self._attr_name)
-                set_effect_method = getattr(zone, "set_effect", None)
-                if callable(set_effect_method):
-                    set_effect_method(effect)
+                if effect not in GECKO_EFFECTS:
+                    _LOGGER.warning("Unsupported effect %s for %s", effect, self._attr_name)
                 else:
-                    _LOGGER.warning("Zone %s does not support set_effect", zone.id)
+                    _LOGGER.debug("Setting effect %s for %s", effect, self._attr_name)
+                    set_effect_method = getattr(zone, "set_effect", None)
+                    if callable(set_effect_method):
+                        # Note: Passing the string name directly as expected by the library
+                        set_effect_method(effect)
+                    else:
+                        _LOGGER.warning("Zone %s does not support set_effect", zone.id)
 
             # Handle color change
             if ATTR_RGB_COLOR in kwargs:
@@ -186,16 +204,8 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
                 else:
                     _LOGGER.warning("Zone %s does not support set_color", zone.id)
 
-            # If no specific effect or color was requested and it's not already on, just activate it
-            if ATTR_EFFECT not in kwargs and ATTR_RGB_COLOR not in kwargs:
-                activate_method = getattr(zone, "activate", None)
-                if callable(activate_method):
-                    activate_method()
-                else:
-                    _LOGGER.warning("Zone %s does not have activate method", zone.id)
-
             self._attr_is_on = True
-            self.async_write_ha_state()
+            await self.coordinator.async_request_refresh()
 
         except Exception as e:
             _LOGGER.error("Error turning on light %s: %s", self._attr_name, e)
@@ -222,7 +232,7 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
                 _LOGGER.warning("Could not find lighting zone %s", self._zone.id)
             
             self._attr_is_on = False
-            self.async_write_ha_state()
+            await self.coordinator.async_request_refresh()
             
         except Exception as e:
             _LOGGER.error("Error turning off light %s: %s", self._attr_name, e)
