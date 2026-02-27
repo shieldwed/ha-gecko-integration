@@ -145,12 +145,22 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
             # Update brightness/color if supported by zone and no effect is active
             if self._attr_effect:
                 self._attr_rgb_color = None
+                self._attr_brightness = 255  # Full brightness for effects
             elif hasattr(zone, "rgbi") and zone.rgbi:
                 _LOGGER.debug("Zone %s current RGBI: r=%s, g=%s, b=%s, i=%s", 
                              zone.id, zone.rgbi.r, zone.rgbi.g, zone.rgbi.b, zone.rgbi.i)
                 self._attr_rgb_color = (zone.rgbi.r, zone.rgbi.g, zone.rgbi.b)
+                # Map intensity (0.0-1.0 or 0-255) to 0-255 brightness
+                if zone.rgbi.i is not None:
+                    if isinstance(zone.rgbi.i, float):
+                        self._attr_brightness = int(zone.rgbi.i * 255)
+                    else:
+                        self._attr_brightness = int(zone.rgbi.i)
+                else:
+                    self._attr_brightness = 255
             else:
                 self._attr_rgb_color = (255, 255, 255)
+                self._attr_brightness = 255
         else:
             self._attr_is_on = None
 
@@ -177,12 +187,8 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
                 _LOGGER.warning("Could not find lighting zone %s", self._zone.id)
                 return
 
-            # Always activate the zone first to ensure it's powered on
-            activate_method = getattr(zone, "activate", None)
-            if callable(activate_method):
-                activate_method()
-            else:
-                 _LOGGER.warning("Zone %s does not have activate method", zone.id)
+            # Prepare state update payload
+            payload = {"active": True}
 
             # Handle effect change
             if ATTR_EFFECT in kwargs:
@@ -191,31 +197,39 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
                     _LOGGER.warning("Unsupported effect %s for %s", effect, self._attr_name)
                 else:
                     _LOGGER.debug("Setting effect %s for %s", effect, self._attr_name)
-                    set_effect_method = getattr(zone, "set_effect", None)
-                    if callable(set_effect_method):
-                        # Note: Passing the string name directly as expected by the library
-                        set_effect_method(effect)
-                    else:
-                        _LOGGER.warning("Zone %s does not support set_effect", zone.id)
+                    payload["effect"] = effect
 
-            # Handle color change
-            if ATTR_RGB_COLOR in kwargs:
-                rgb = kwargs[ATTR_RGB_COLOR]
-                _LOGGER.debug("Setting RGB color %s for %s", rgb, self._attr_name)
+            # Handle color/brightness change
+            if ATTR_RGB_COLOR in kwargs or ATTR_BRIGHTNESS in kwargs:
+                rgb = kwargs.get(ATTR_RGB_COLOR, self._attr_rgb_color or (255, 255, 255))
+                brightness = kwargs.get(ATTR_BRIGHTNESS, self._attr_brightness or 255)
+                intensity = float(brightness / 255.0)
                 
-                # WORKAROUND: Bypass broken zone.set_color() in gecko-iot-client v0.2.5
-                # The library method fails with "Object of type RGB is not JSON serializable"
-                rgb_obj = RGB(r=int(rgb[0]), g=int(rgb[1]), b=int(rgb[2]))
-                zone.rgbi = rgb_obj
+                _LOGGER.debug("Setting RGBI [r: %s, g: %s, b: %s, i: %s] for %s", 
+                             int(rgb[0]), int(rgb[1]), int(rgb[2]), intensity, self._attr_name)
+                
+                # Use list format [r, g, b, i] which matches how the hardware reports state
+                payload["rgbi"] = [int(rgb[0]), int(rgb[1]), int(rgb[2]), intensity]
+                
+                # Update local zone object to reflect desired state for immediate reporting
+                zone.rgbi = RGB(r=int(rgb[0]), g=int(rgb[1]), b=int(rgb[2]), i=intensity)
+
+            # Publish the combined state update
+            publish_method = getattr(zone, "_publish_desired_state", None)
+            if callable(publish_method):
+                _LOGGER.debug("Publishing state update for %s: %s", self._attr_name, payload)
+                publish_method(payload)
                 zone.active = True
-                
-                # Manually publish the state as a serializable dictionary
-                publish_method = getattr(zone, "_publish_desired_state", None)
-                if callable(publish_method):
-                    # We utilize the model_dump() method of the RGB class to get a dict
-                    publish_method({"rgbi": rgb_obj.model_dump(), "active": True})
+            else:
+                # Fallback to standard library methods if publish_method is missing
+                _LOGGER.warning("Using library fallback for %s state update", self._attr_name)
+                if "effect" in payload:
+                    zone.set_effect(payload["effect"])
+                elif "rgbi" in payload:
+                    c = payload["rgbi"]
+                    zone.set_color(c[0], c[1], c[2], c[3])
                 else:
-                    _LOGGER.warning("Zone %s does not support _publish_desired_state manual call", zone.id)
+                    zone.activate()
 
             self._attr_is_on = True
             await self.coordinator.async_request_refresh()
@@ -236,11 +250,13 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
             light_zones = self.coordinator.get_zones_by_type(ZoneType.LIGHTING_ZONE)
             zone = next((z for z in light_zones if z.id == self._zone.id), None)
             if zone:
-                deactivate_method = getattr(zone, "deactivate", None)
-                if callable(deactivate_method):
-                    deactivate_method()
+                publish_method = getattr(zone, "_publish_desired_state", None)
+                if callable(publish_method):
+                    _LOGGER.debug("Publishing turn_off for %s", self._attr_name)
+                    publish_method({"active": False})
+                    zone.active = False
                 else:
-                    _LOGGER.warning("Zone %s does not have deactivate method", zone.id)
+                    zone.deactivate()
             else:
                 _LOGGER.warning("Could not find lighting zone %s", self._zone.id)
             
