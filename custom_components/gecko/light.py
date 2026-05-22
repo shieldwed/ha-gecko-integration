@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from collections.abc import Callable
+
 from homeassistant.components.light import (
     ATTR_EFFECT,
     ColorMode,
@@ -124,9 +126,20 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
         """Update entity state from zone data."""
         zone = self._get_zone_state()
         if zone:
-            self._attr_is_on = getattr(zone, 'active', False)
+            get_lighting_state : Callable[[], dict[str, Any]] | None = getattr(zone, 'get_lighting_state', None)
+            if get_lighting_state and callable(get_lighting_state):
+                state = get_lighting_state()
+                self._attr_is_on = state.get("active")
+                self._attr_effect = state.get("effect")
+                if self._attr_effect:
+                    self._attr_assumed_state
+
+            else:
+                _LOGGER.warning("Zone %s does not have deactivate method", zone.id)
+            self._attr_effect
         else:
             self._attr_is_on = None
+            _LOGGER.warning("Error getting zone state for %s: %s", self._attr_name, e)
 
     @callback
     def _handle_coordinator_update(self) -> None:
