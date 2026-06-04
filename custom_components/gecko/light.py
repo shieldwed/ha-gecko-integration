@@ -7,11 +7,9 @@ from typing import Any
 
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
-    ATTR_EFFECT,
     ATTR_RGB_COLOR,
     ColorMode,
     LightEntity,
-    LightEntityFeature,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -26,13 +24,9 @@ from .entity import GeckoEntityAvailabilityMixin
 from . import GeckoConfigEntry
 
 from gecko_iot_client.models.zone_types import ZoneType
-from gecko_iot_client.models.lighting_zone import RGB
 
 
 _LOGGER = logging.getLogger(__name__)
-
-# List of supported effects for Gecko lights
-GECKO_EFFECTS = ["Rainbow Slow", "Rainbow Fast", "Slow Fade", "Fast Fade", "Loop"]
 
 
 async def async_setup_entry(
@@ -103,21 +97,18 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
         self._attr_name = f"Light {zone.id}"
         self._attr_unique_id = f"{config_entry.entry_id}_{coordinator.vessel_id}_light_{zone.id}"
 
-        # Device info for grouping entities - reference the actual device created in __init__.py
+        # Device info for grouping entities
         self._attr_device_info = dr.DeviceInfo(
             identifiers={(DOMAIN, str(coordinator.vessel_id))},
         )
         
-        # Set basic light features - Now supporting RGB and Effects
+        # Set basic light features - Now supporting only RGB
         self._attr_supported_color_modes = {ColorMode.RGB}
         self._attr_color_mode = ColorMode.RGB
-        self._attr_supported_features = LightEntityFeature.EFFECT
-        self._attr_effect_list = GECKO_EFFECTS
         
-        # Initialize state and availability (will be set by async_added_to_hass event registration)
+        # Initialize state
         self._attr_available = False
         self._attr_rgb_color = (255, 255, 255)
-        self._attr_effect = None
         self._update_state()
 
     def _get_zone_state(self) -> Any | None:
@@ -135,30 +126,29 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
         if zone:
             self._attr_is_on = getattr(zone, 'active', False)
             
-            # Update effect if supported by zone and valid
-            zone_effect = getattr(zone, "effect", None)
-            _LOGGER.debug("Zone %s current effect: %s", zone.id, zone_effect)
-            if zone_effect in GECKO_EFFECTS:
-                self._attr_effect = zone_effect
-            else:
-                self._attr_effect = None
-
-            # Update brightness/color if supported by zone and no effect is active
-            if self._attr_effect:
-                self._attr_rgb_color = None
-                self._attr_brightness = 255  # Full brightness for effects
-            elif hasattr(zone, "rgbi") and zone.rgbi:
-                _LOGGER.debug("Zone %s current RGBI: r=%s, g=%s, b=%s, i=%s", 
-                             zone.id, zone.rgbi.r, zone.rgbi.g, zone.rgbi.b, zone.rgbi.i)
-                self._attr_rgb_color = (zone.rgbi.r, zone.rgbi.g, zone.rgbi.b)
-                # Map intensity (0.0-1.0 or 0-255) to 0-255 brightness
-                if zone.rgbi.i is not None:
-                    if isinstance(zone.rgbi.i, float):
-                        self._attr_brightness = int(zone.rgbi.i * 255)
+            # Update brightness/color if supported by zone
+            if hasattr(zone, "rgbi") and zone.rgbi:
+                # Log state to help debug brightness issues
+                _LOGGER.debug("Zone %s current RGBI: %s", zone.id, zone.rgbi)
+                
+                try:
+                    if hasattr(zone.rgbi, 'r'):
+                        self._attr_rgb_color = (zone.rgbi.r, zone.rgbi.g, zone.rgbi.b)
+                        intensity = zone.rgbi.i
                     else:
-                        self._attr_brightness = int(zone.rgbi.i)
-                else:
-                    self._attr_brightness = 255
+                        self._attr_rgb_color = (zone.rgbi[0], zone.rgbi[1], zone.rgbi[2])
+                        intensity = zone.rgbi[3]
+
+                    # Map intensity (0.0-1.0 or 0-255) to 0-255 brightness
+                    if intensity is not None:
+                        if isinstance(intensity, float):
+                            self._attr_brightness = int(intensity * 255)
+                        else:
+                            self._attr_brightness = int(intensity)
+                    else:
+                        self._attr_brightness = 255
+                except (IndexError, AttributeError) as e:
+                    _LOGGER.warning("Error parsing RGBI data for %s: %s", self._attr_name, e)
             else:
                 self._attr_rgb_color = (255, 255, 255)
                 self._attr_brightness = 255
@@ -169,18 +159,11 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         self._update_state()
-        # Availability is now updated via CONNECTIVITY_UPDATE events, not polling
         self.async_write_ha_state()
 
     async def async_turn_on(self, **kwargs) -> None:
         """Turn the light on."""
         try:
-            # Check if gecko client is connected
-            gecko_client = await self.coordinator.get_gecko_client()
-            if not gecko_client:
-                _LOGGER.error("No gecko client available for %s", self._attr_name)
-                return
-                
             # Get the light zone from coordinator
             light_zones = self.coordinator.get_zones_by_type(ZoneType.LIGHTING_ZONE)
             zone = next((z for z in light_zones if z.id == self._zone.id), None)
@@ -188,49 +171,32 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
                 _LOGGER.warning("Could not find lighting zone %s", self._zone.id)
                 return
 
-            # Prepare state update payload
-            payload = {"active": True}
-
-            # Handle effect change
-            if ATTR_EFFECT in kwargs:
-                effect = kwargs[ATTR_EFFECT]
-                if effect not in GECKO_EFFECTS:
-                    _LOGGER.warning("Unsupported effect %s for %s", effect, self._attr_name)
-                else:
-                    _LOGGER.debug("Setting effect %s for %s", effect, self._attr_name)
-                    payload["effect"] = effect
-
             # Handle color/brightness change
             if ATTR_RGB_COLOR in kwargs or ATTR_BRIGHTNESS in kwargs:
                 rgb = kwargs.get(ATTR_RGB_COLOR, self._attr_rgb_color or (255, 255, 255))
                 brightness = kwargs.get(ATTR_BRIGHTNESS, self._attr_brightness or 255)
                 intensity = float(brightness / 255.0)
                 
-                _LOGGER.debug("Setting RGBI [r: %s, g: %s, b: %s, i: %s] for %s", 
+                _LOGGER.debug("Setting color RGBI [%s, %s, %s, %s] for %s", 
                              int(rgb[0]), int(rgb[1]), int(rgb[2]), intensity, self._attr_name)
                 
-                # Use list format [r, g, b, i] which matches how the hardware reports state
-                payload["rgbi"] = [int(rgb[0]), int(rgb[1]), int(rgb[2]), intensity]
-                
-                # Update local zone object to reflect desired state for immediate reporting
-                zone.rgbi = RGB(r=int(rgb[0]), g=int(rgb[1]), b=int(rgb[2]), i=intensity)
-
-            # Publish the combined state update
-            publish_method = getattr(zone, "_publish_desired_state", None)
-            if callable(publish_method):
-                _LOGGER.debug("Publishing state update for %s: %s", self._attr_name, payload)
-                publish_method(payload)
-                zone.active = True
-            else:
-                # Fallback to standard library methods if publish_method is missing
-                _LOGGER.warning("Using library fallback for %s state update", self._attr_name)
-                if "effect" in payload:
-                    zone.set_effect(payload["effect"])
-                elif "rgbi" in payload:
-                    c = payload["rgbi"]
-                    zone.set_color(c[0], c[1], c[2], c[3])
+                if hasattr(zone, "set_color"):
+                    # High-level library method
+                    zone.set_color(int(rgb[0]), int(rgb[1]), int(rgb[2]), intensity)
                 else:
+                    # Fallback to direct state publishing
+                    publish_method = getattr(zone, "_publish_desired_state", None)
+                    if callable(publish_method):
+                        # Use raw list to avoid serialization errors seen in logs
+                        publish_method({"active": True, "rgbi": [int(rgb[0]), int(rgb[1]), int(rgb[2]), intensity]})
+            else:
+                # Default: just turn on
+                if hasattr(zone, "activate"):
                     zone.activate()
+                else:
+                    publish_method = getattr(zone, "_publish_desired_state", None)
+                    if callable(publish_method):
+                        publish_method({"active": True})
 
             self._attr_is_on = True
             await self.coordinator.async_request_refresh()
@@ -241,23 +207,18 @@ class GeckoLight(GeckoEntityAvailabilityMixin, CoordinatorEntity, LightEntity):
     async def async_turn_off(self, **kwargs) -> None:
         """Turn the light off."""
         try:
-            # Check if gecko client is connected
-            gecko_client = await self.coordinator.get_gecko_client()
-            if not gecko_client:
-                _LOGGER.error("No gecko client available for %s", self._attr_name)
-                return
-                
             # Get the light zone from coordinator
             light_zones = self.coordinator.get_zones_by_type(ZoneType.LIGHTING_ZONE)
             zone = next((z for z in light_zones if z.id == self._zone.id), None)
             if zone:
-                publish_method = getattr(zone, "_publish_desired_state", None)
-                if callable(publish_method):
-                    _LOGGER.debug("Publishing turn_off for %s", self._attr_name)
-                    publish_method({"active": False})
-                    zone.active = False
-                else:
+                if hasattr(zone, "deactivate"):
+                    _LOGGER.debug("Calling deactivate for %s", self._attr_name)
                     zone.deactivate()
+                else:
+                    publish_method = getattr(zone, "_publish_desired_state", None)
+                    if callable(publish_method):
+                        _LOGGER.debug("Publishing turn_off for %s", self._attr_name)
+                        publish_method({"active": False})
             else:
                 _LOGGER.warning("Could not find lighting zone %s", self._zone.id)
             
